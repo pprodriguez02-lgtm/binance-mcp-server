@@ -1,0 +1,40 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import type { AppConfig } from "../config.js";
+import type { BinanceClient } from "../binance/client.js";
+import { jsonContent, withRateLimit } from "./market.js";
+import { intervalSchema, orderBookLimitSchema, symbolSchema } from "./schemas.js";
+
+const sideSchema = z.enum(["BUY", "SELL"]);
+const orderTypeSchema = z.enum(["LIMIT", "MARKET", "STOP_LOSS", "STOP_LOSS_LIMIT", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT", "LIMIT_MAKER"]);
+const timeInForceSchema = z.enum(["GTC", "IOC", "FOK"]);
+
+export function registerSpotAliasTools(server: McpServer, client: BinanceClient, config: AppConfig): void {
+  const tool = server.tool.bind(server) as unknown as (...args: unknown[]) => void;
+
+  tool("spot_get_server_time", "Spot: get Binance Spot server time.", {}, async () => result(await client.get<unknown>("/api/v3/time")));
+  tool("spot_get_exchange_info", "Spot: get exchange info, symbols, and trading rules.", { symbol: symbolSchema.optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/exchangeInfo", cleanParams(a), { cacheTtlMs: config.exchangeInfoCacheTtlMs })));
+  tool("spot_get_symbol_price", "Spot: get latest Spot symbol price ticker.", { symbol: symbolSchema.optional(), symbols: z.array(symbolSchema).min(1).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/ticker/price", cleanParams(a))));
+  tool("spot_get_24hr_ticker", "Spot: get 24-hour Spot price statistics.", { symbol: symbolSchema.optional(), symbols: z.array(symbolSchema).min(1).optional(), type: z.enum(["FULL", "MINI"]).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/ticker/24hr", cleanParams(a))));
+  tool("spot_get_order_book", "Spot: get Spot order book depth.", { symbol: symbolSchema, limit: orderBookLimitSchema.optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/depth", { ...cleanParams(a), limit: a.limit ?? 100 })));
+  tool("spot_get_recent_trades", "Spot: get recent Spot trades.", { symbol: symbolSchema, limit: z.number().int().min(1).max(1000).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/trades", { ...cleanParams(a), limit: a.limit ?? 100 })));
+  tool("spot_get_aggregate_trades", "Spot: get aggregate Spot trades.", { symbol: symbolSchema, fromId: z.number().int().nonnegative().optional(), startTime: z.number().int().nonnegative().optional(), endTime: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(1000).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/aggTrades", { ...cleanParams(a), limit: a.limit ?? 100 })));
+  tool("spot_get_klines", "Spot: get Spot candlestick klines.", { symbol: symbolSchema, interval: intervalSchema, startTime: z.number().int().nonnegative().optional(), endTime: z.number().int().nonnegative().optional(), timeZone: z.string().optional(), limit: z.number().int().min(1).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/klines", { ...cleanParams(a), limit: a.limit ?? 500 })));
+  tool("spot_get_avg_price", "Spot: get current Spot average price.", { symbol: symbolSchema }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/avgPrice", cleanParams(a))));
+  tool("spot_get_ui_klines", "Spot: get UI-optimized Spot candlestick klines.", { symbol: symbolSchema, interval: intervalSchema, limit: z.number().int().min(1).optional() }, async (a: Record<string, unknown>) => result(await client.get<unknown>("/api/v3/uiKlines", { ...cleanParams(a), limit: a.limit ?? 500 })));
+
+  tool("spot_get_account_info", "Spot signed: get Spot account information.", { omitZeroBalances: z.boolean().optional(), recvWindow: z.number().int().positive().optional() }, async (a: Record<string, unknown>) => { ensureSigned(config); return result(await client.signedGet<unknown>("/api/v3/account", cleanParams(a))); });
+  tool("spot_get_open_orders", "Spot signed: get open Spot orders.", { symbol: symbolSchema.optional(), recvWindow: z.number().int().positive().optional() }, async (a: Record<string, unknown>) => { ensureSigned(config); return result(await client.signedGet<unknown>("/api/v3/openOrders", cleanParams(a))); });
+  tool("spot_get_order", "Spot signed: query one Spot order.", { symbol: symbolSchema, orderId: z.number().int().positive().optional(), origClientOrderId: z.string().optional(), recvWindow: z.number().int().positive().optional() }, async (a: Record<string, unknown>) => { ensureSigned(config); return result(await client.signedGet<unknown>("/api/v3/order", cleanParams(a))); });
+  tool("spot_test_order", "Spot signed: validate a Spot order without placing it.", spotOrderSchema(false), async (a: Record<string, unknown>) => { ensureTrading(config, false, a.confirm === true); return result(await client.signedPost<unknown>("/api/v3/order/test", cleanOrderParams(a))); });
+  tool("spot_place_order", "Spot signed: place a Spot order. Requires confirm=true.", spotOrderSchema(true), async (a: Record<string, unknown>) => { ensureTrading(config, true, a.confirm === true); return result(await client.signedPost<unknown>("/api/v3/order", cleanOrderParams(a))); });
+  tool("spot_cancel_order", "Spot signed: cancel one Spot order. Requires confirm=true.", { symbol: symbolSchema, orderId: z.number().int().positive().optional(), origClientOrderId: z.string().optional(), recvWindow: z.number().int().positive().optional(), confirm: z.boolean() }, async (a: Record<string, unknown>) => { ensureTrading(config, true, a.confirm === true); return result(await client.signedDelete<unknown>("/api/v3/order", cleanOrderParams(a))); });
+  tool("spot_cancel_open_orders", "Spot signed: cancel all open Spot orders for a symbol. Requires confirm=true.", { symbol: symbolSchema, recvWindow: z.number().int().positive().optional(), confirm: z.boolean() }, async (a: Record<string, unknown>) => { ensureTrading(config, true, a.confirm === true); return result(await client.signedDelete<unknown>("/api/v3/openOrders", cleanOrderParams(a))); });
+}
+
+function spotOrderSchema(confirmRequired: boolean): Record<string, unknown> { return { symbol: symbolSchema, side: sideSchema, type: orderTypeSchema, quantity: z.string().optional(), quoteOrderQty: z.string().optional(), price: z.string().optional(), timeInForce: timeInForceSchema.optional(), stopPrice: z.string().optional(), trailingDelta: z.number().int().positive().optional(), icebergQty: z.string().optional(), newClientOrderId: z.string().optional(), newOrderRespType: z.enum(["ACK", "RESULT", "FULL"]).optional(), recvWindow: z.number().int().positive().optional(), confirm: confirmRequired ? z.boolean() : z.boolean().optional() }; }
+function result(response: { data: unknown; rateLimit: unknown }) { return jsonContent(withRateLimit(response.data, response.rateLimit)); }
+function ensureSigned(config: AppConfig) { if (!config.apiKey || !config.apiSecret) throw new Error("BINANCE_API_KEY and BINANCE_API_SECRET are required for Spot signed tools."); }
+function ensureTrading(config: AppConfig, write: boolean, confirmed: boolean) { ensureSigned(config); if (!config.enableTrading) throw new Error("Spot trading tools are disabled. Set BINANCE_ENABLE_TRADING=true."); if (write && !confirmed) throw new Error("This Spot write operation requires confirm=true."); if (write && config.env === "production" && !config.allowProductionTrading) throw new Error("Production Spot trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk."); }
+function cleanOrderParams(args: Record<string, unknown>): Record<string, unknown> { const params = cleanParams(args); delete params.confirm; return params; }
+function cleanParams(args: Record<string, unknown>): Record<string, unknown> { return Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "")); }

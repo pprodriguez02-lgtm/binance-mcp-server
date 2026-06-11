@@ -1,0 +1,40 @@
+{
+  "name": "binance-mcp-server",
+  "version": "0.1.0",
+  "description": "Read-only Binance Spot market data MCP server for AI analysis.",
+  "type": "module",
+  "bin": {
+    "binance-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "binance",
+    "market-data",
+    "trading",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "dotenv": "^16.4.7",
+    "https-proxy-agent": "^7.0.6",
+    "node-fetch": "^3.3.2",
+    "socks-proxy-agent": "^8.0.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
