@@ -1,0 +1,20 @@
+{
+  "symbol": "BTWUSDT",
+  "direction": "long",
+  "lower": 1.8,
+  "upper": 2.0,
+  "grids": 10,
+  "spacing": "arithmetic",
+  "margin": 10,
+  "leverage": 10,
+  "qty_per_order": 3,
+  "hours": 8,
+  "days": 3,
+  "price_basis": "mark",
+  "targets_roi": [5, 10, 15],
+  "tp_roi": 10,
+  "sl_roi": 10,
+  "maker_fee_pct": 0.02,
+  "taker_fee_pct": 0.05,
+  "market_slippage_pct": 0.02
+}
