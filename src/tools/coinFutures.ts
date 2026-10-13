@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { requiresProductionTradingPermission } from "../binance/security.js";
 import type { BinanceClient } from "../binance/client.js";
 import { jsonContent, withRateLimit } from "./market.js";
 import { intervalSchema, symbolSchema } from "./schemas.js";
@@ -56,6 +57,6 @@ function orderSchema(confirmRequired: boolean): Record<string, unknown> {
 }
 function result(response: { data: unknown; rateLimit: unknown }) { return jsonContent(withRateLimit(response.data, response.rateLimit)); }
 function ensureSigned(config: AppConfig) { if (!config.apiKey || !config.apiSecret) throw new Error("BINANCE_API_KEY and BINANCE_API_SECRET are required for COIN-M Futures signed tools."); }
-function ensureTrading(config: AppConfig, confirmed: boolean, writeOperation: boolean) { ensureSigned(config); if (!config.enableTrading) throw new Error("COIN-M Futures trading tools are disabled. Set BINANCE_ENABLE_TRADING=true to enable them."); if (writeOperation && !confirmed) throw new Error("This COIN-M Futures write operation requires confirm=true."); if (writeOperation && config.env === "production" && !config.allowProductionTrading) throw new Error("Production COIN-M Futures trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk."); }
+function ensureTrading(config: AppConfig, confirmed: boolean, writeOperation: boolean) { ensureSigned(config); if (!config.enableTrading) throw new Error("COIN-M Futures trading tools are disabled. Set BINANCE_ENABLE_TRADING=true to enable them."); if (writeOperation && !confirmed) throw new Error("This COIN-M Futures write operation requires confirm=true."); if (writeOperation && requiresProductionTradingPermission(config, config.coinFuturesSignedBaseUrl) && !config.allowProductionTrading) throw new Error("Production COIN-M Futures trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk."); }
 function cleanOrderParams(args: Record<string, unknown>): Record<string, unknown> { const params = cleanParams(args); delete params.confirm; return params; }
 function cleanParams(args: Record<string, unknown>): Record<string, unknown> { return Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "")); }

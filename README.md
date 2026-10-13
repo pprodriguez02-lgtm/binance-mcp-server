@@ -14,6 +14,8 @@ Supported environments:
 
 `BINANCE_BASE_URL` can override the built-in URL mapping for public market data. `BINANCE_SIGNED_BASE_URL` can override the URL for signed account/order endpoints. This lets you use `https://data-api.binance.vision` for public market data while using `https://demo-api.binance.com`, `https://testnet.binance.vision`, or `https://api.binance.com` for signed endpoints.
 
+API destinations must use HTTPS with the standard port and one of these exact hosts: `api.binance.com`, `fapi.binance.com`, `dapi.binance.com`, `data-api.binance.vision`, `demo-api.binance.com`, `testnet.binance.vision`, or `testnet.binancefuture.com`. Redirects are rejected. The public `data-api.binance.vision` host cannot receive signed requests.
+
 ## Tools
 
 ### Spot market data
@@ -151,7 +153,7 @@ npm run dev
 
 ## Configuration
 
-Copy `.env.example` to `.env` if you want local overrides.
+Create a `.env` file if you want local overrides. `.env` and its variants are excluded from Git; only a credential-free `.env.example` may be committed.
 
 ```env
 BINANCE_ENV=demo
@@ -190,8 +192,8 @@ After building the project, add a server similar to this in your Cursor MCP conf
         "BINANCE_ENV": "production",
         "BINANCE_BASE_URL": "https://data-api.binance.vision",
         "BINANCE_SIGNED_BASE_URL": "https://api.binance.com",
-        "BINANCE_ENABLE_TRADING": "true",
-        "BINANCE_ALLOW_PRODUCTION_TRADING": "true",
+        "BINANCE_ENABLE_TRADING": "false",
+        "BINANCE_ALLOW_PRODUCTION_TRADING": "false",
         "BINANCE_PROXY_URL": "socks5h://127.0.0.1:1080",
         "BINANCE_API_KEY": "{YOUR_BINANCE_API_KEY}",
         "BINANCE_API_SECRET": "{YOUR_BINANCE_API_SECRET}",
@@ -218,7 +220,7 @@ BINANCE_ENABLE_TRADING=true
 BINANCE_ALLOW_PRODUCTION_TRADING=false
 ```
 
-For production trading, `BINANCE_ALLOW_PRODUCTION_TRADING=true` is also required. Only enable it if you intentionally accept real trading risk.
+For production trading, `BINANCE_ALLOW_PRODUCTION_TRADING=true` is also required. This applies when either `BINANCE_ENV=production` or the signed destination is a production host, even with `BINANCE_ENV=demo` or `testnet`. Only enable it if you intentionally accept real trading risk. The `confirm=true` tool argument is not a separate human approval prompt.
 
 Test an order without placing it:
 
@@ -286,8 +288,8 @@ Compare symbols:
 - `get_symbol_price` can return all market prices when `symbol` is omitted.
 - Other large market tools require `symbol` or `symbols` to avoid excessive MCP context usage.
 - Most tools accept `raw: true` to return the original Binance API payload.
-- When `BINANCE_API_KEY` is configured, requests include the `X-MBX-APIKEY` header.
+- Only signed requests include the `X-MBX-APIKEY` header. Public market data requests do not send credentials and can be used without API keys.
 - `BINANCE_PROXY_URL` can route all Binance REST requests through a proxy, for example `socks5://127.0.0.1:1080`, `socks5h://127.0.0.1:1080`, `http://127.0.0.1:7890`, or `https://127.0.0.1:7890`.
-- `BINANCE_API_SECRET` is reserved for future signed private endpoints and is not used by the current read-only tools.
+- `BINANCE_API_SECRET` is used locally to sign private account and trading requests; the secret itself is not sent.
 - Responses include a `rateLimit` object extracted from Binance response headers when available.
 - `exchangeInfo` is cached according to `BINANCE_EXCHANGE_INFO_CACHE_TTL_MS`.

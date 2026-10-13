@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { requiresProductionTradingPermission } from "../binance/security.js";
 import type { BinanceClient } from "../binance/client.js";
 import { jsonContent, withRateLimit } from "./market.js";
 import { intervalSchema, symbolSchema } from "./schemas.js";
@@ -215,7 +216,7 @@ function ensureFuturesTradingAllowed(config: AppConfig, confirmed: boolean, writ
   ensureFuturesSignedAllowed(config);
   if (!config.enableTrading) throw new Error("Futures trading tools are disabled. Set BINANCE_ENABLE_TRADING=true to enable them.");
   if (writeOperation && !confirmed) throw new Error("This Futures write operation requires confirm=true.");
-  if (writeOperation && config.env === "production" && !config.allowProductionTrading) throw new Error("Production Futures trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk.");
+  if (writeOperation && requiresProductionTradingPermission(config, config.futuresSignedBaseUrl) && !config.allowProductionTrading) throw new Error("Production Futures trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk.");
 }
 
 function cleanOrderParams(args: Record<string, unknown>): Record<string, unknown> {

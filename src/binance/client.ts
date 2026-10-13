@@ -5,6 +5,7 @@ import { SocksProxyAgent } from "socks-proxy-agent";
 import type { Agent } from "node:http";
 import type { AppConfig } from "../config.js";
 import type { BinanceResponse, RateLimitInfo } from "./types.js";
+import { assertAllowedBinanceUrl } from "./security.js";
 
 export class BinanceApiError extends Error {
   constructor(
@@ -28,6 +29,12 @@ export class BinanceClient {
   private readonly proxyAgent: Agent | undefined;
 
   constructor(private readonly config: AppConfig) {
+    for (const baseUrl of [config.baseUrl, config.futuresBaseUrl, config.coinFuturesBaseUrl]) {
+      assertAllowedBinanceUrl(new URL(baseUrl));
+    }
+    for (const baseUrl of [config.signedBaseUrl, config.futuresSignedBaseUrl, config.coinFuturesSignedBaseUrl]) {
+      assertAllowedBinanceUrl(new URL(baseUrl), true);
+    }
     this.proxyAgent = config.proxyUrl ? createProxyAgent(config.proxyUrl) : undefined;
   }
 
@@ -55,15 +62,15 @@ export class BinanceClient {
   }
 
   async signedGet<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("GET", this.buildSignedUrl(path, params));
+    return this.request<T>("GET", this.buildSignedUrl(path, params), true);
   }
 
   async signedPost<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("POST", this.buildSignedUrl(path, params));
+    return this.request<T>("POST", this.buildSignedUrl(path, params), true);
   }
 
   async signedDelete<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("DELETE", this.buildSignedUrl(path, params));
+    return this.request<T>("DELETE", this.buildSignedUrl(path, params), true);
   }
 
   async futuresGet<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
@@ -71,15 +78,15 @@ export class BinanceClient {
   }
 
   async futuresSignedGet<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("GET", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl));
+    return this.request<T>("GET", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl), true);
   }
 
   async futuresSignedPost<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("POST", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl));
+    return this.request<T>("POST", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl), true);
   }
 
   async futuresSignedDelete<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("DELETE", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl));
+    return this.request<T>("DELETE", this.buildSignedUrlWithBase(path, params, this.config.futuresSignedBaseUrl), true);
   }
 
   async coinFuturesGet<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
@@ -87,23 +94,24 @@ export class BinanceClient {
   }
 
   async coinFuturesSignedGet<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("GET", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl));
+    return this.request<T>("GET", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl), true);
   }
 
   async coinFuturesSignedPost<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("POST", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl));
+    return this.request<T>("POST", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl), true);
   }
 
   async coinFuturesSignedDelete<T>(path: string, params: Record<string, unknown> = {}): Promise<BinanceResponse<T>> {
-    return this.request<T>("DELETE", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl));
+    return this.request<T>("DELETE", this.buildSignedUrlWithBase(path, params, this.config.coinFuturesSignedBaseUrl), true);
   }
 
-  private async request<T>(method: string, url: URL): Promise<BinanceResponse<T>> {
+  private async request<T>(method: string, url: URL, signed = false): Promise<BinanceResponse<T>> {
+    assertAllowedBinanceUrl(url, signed);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
 
     try {
-      const response = await fetch(url, this.buildRequestInit(method, controller.signal));
+      const response = await fetch(url, this.buildRequestInit(method, controller.signal, signed));
       const text = await response.text();
       const payload = parseResponsePayload(text, response.headers.get("content-type"));
 
@@ -137,11 +145,12 @@ export class BinanceClient {
     }
   }
 
-  private buildRequestInit(method: string, signal: AbortSignal): RequestInit {
+  private buildRequestInit(method: string, signal: AbortSignal, signed: boolean): RequestInit {
     const init: RequestInit = {
       method,
       signal,
-      headers: this.buildHeaders(),
+      headers: this.buildHeaders(signed),
+      redirect: "error",
     };
 
     if (this.proxyAgent) {
@@ -151,13 +160,13 @@ export class BinanceClient {
     return init;
   }
 
-  private buildHeaders(): Record<string, string> {
+  private buildHeaders(signed: boolean): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       "User-Agent": "binance-mcp-server/0.1.0",
     };
 
-    if (this.config.apiKey) {
+    if (signed && this.config.apiKey) {
       headers["X-MBX-APIKEY"] = this.config.apiKey;
     }
 
@@ -179,6 +188,7 @@ export class BinanceClient {
       timestamp: Date.now(),
     };
     const url = this.buildUrlWithBase(path, signedParams, baseUrl);
+    assertAllowedBinanceUrl(url, true);
     const signature = crypto
       .createHmac("sha256", this.config.apiSecret)
       .update(url.searchParams.toString())
@@ -193,6 +203,7 @@ export class BinanceClient {
 
   private buildUrlWithBase(path: string, params: Record<string, unknown>, baseUrl: string): URL {
     const url = new URL(path, baseUrl);
+    assertAllowedBinanceUrl(url);
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined || value === null || value === "") {
         continue;

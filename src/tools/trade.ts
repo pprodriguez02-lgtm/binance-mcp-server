@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { requiresProductionTradingPermission } from "../binance/security.js";
 import type { BinanceClient } from "../binance/client.js";
 import { jsonContent, withRateLimit } from "./market.js";
 import { symbolSchema } from "./schemas.js";
@@ -153,7 +154,7 @@ function ensureTradingAllowed(config: AppConfig, confirmed: boolean, writeOperat
   if (writeOperation && !confirmed) {
     throw new Error("This write operation requires confirm=true.");
   }
-  if (writeOperation && config.env === "production" && !config.allowProductionTrading) {
+  if (writeOperation && requiresProductionTradingPermission(config, config.signedBaseUrl) && !config.allowProductionTrading) {
     throw new Error("Production trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk.");
   }
 }

@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { requiresProductionTradingPermission } from "../binance/security.js";
 import type { BinanceClient } from "../binance/client.js";
 import { jsonContent, withRateLimit } from "./market.js";
 import { intervalSchema, orderBookLimitSchema, symbolSchema } from "./schemas.js";
@@ -35,6 +36,6 @@ export function registerSpotAliasTools(server: McpServer, client: BinanceClient,
 function spotOrderSchema(confirmRequired: boolean): Record<string, unknown> { return { symbol: symbolSchema, side: sideSchema, type: orderTypeSchema, quantity: z.string().optional(), quoteOrderQty: z.string().optional(), price: z.string().optional(), timeInForce: timeInForceSchema.optional(), stopPrice: z.string().optional(), trailingDelta: z.number().int().positive().optional(), icebergQty: z.string().optional(), newClientOrderId: z.string().optional(), newOrderRespType: z.enum(["ACK", "RESULT", "FULL"]).optional(), recvWindow: z.number().int().positive().optional(), confirm: confirmRequired ? z.boolean() : z.boolean().optional() }; }
 function result(response: { data: unknown; rateLimit: unknown }) { return jsonContent(withRateLimit(response.data, response.rateLimit)); }
 function ensureSigned(config: AppConfig) { if (!config.apiKey || !config.apiSecret) throw new Error("BINANCE_API_KEY and BINANCE_API_SECRET are required for Spot signed tools."); }
-function ensureTrading(config: AppConfig, write: boolean, confirmed: boolean) { ensureSigned(config); if (!config.enableTrading) throw new Error("Spot trading tools are disabled. Set BINANCE_ENABLE_TRADING=true."); if (write && !confirmed) throw new Error("This Spot write operation requires confirm=true."); if (write && config.env === "production" && !config.allowProductionTrading) throw new Error("Production Spot trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk."); }
+function ensureTrading(config: AppConfig, write: boolean, confirmed: boolean) { ensureSigned(config); if (!config.enableTrading) throw new Error("Spot trading tools are disabled. Set BINANCE_ENABLE_TRADING=true."); if (write && !confirmed) throw new Error("This Spot write operation requires confirm=true."); if (write && requiresProductionTradingPermission(config, config.signedBaseUrl) && !config.allowProductionTrading) throw new Error("Production Spot trading is disabled. Set BINANCE_ALLOW_PRODUCTION_TRADING=true only if you intentionally accept real trading risk."); }
 function cleanOrderParams(args: Record<string, unknown>): Record<string, unknown> { const params = cleanParams(args); delete params.confirm; return params; }
 function cleanParams(args: Record<string, unknown>): Record<string, unknown> { return Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "")); }
